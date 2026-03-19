@@ -229,7 +229,7 @@ async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  console.log('[Task Tracker] Plugin loaded')
+  console.log('[Inline Task Badge] Plugin loaded')
 
   logseq.useSettingsSchema([
     {

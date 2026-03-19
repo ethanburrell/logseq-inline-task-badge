@@ -1,4 +1,4 @@
-# Logseq Task Tracker
+# logseq-inline-task-badge
 
 A Logseq plugin that adds inline, clickable status badges to any block. Track tasks through a 7-stage workflow without leaving your notes.
 

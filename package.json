@@ -1,11 +1,11 @@
 {
-  "name": "logseq-task-tracker",
+  "name": "logseq-inline-task-badge",
   "version": "0.1.0",
-  "description": "Custom task status tracker with dropdown workflow for Logseq",
+  "description": "Inline task status badges with dropdown workflow for Logseq",
   "logseq": {
-    "id": "logseq-task-tracker",
+    "id": "logseq-inline-task-badge",
     "main": "dist/index.html",
-    "title": "Task Tracker",
+    "title": "Inline Task Badge",
     "icon": "icon.svg"
   },
   "scripts": {

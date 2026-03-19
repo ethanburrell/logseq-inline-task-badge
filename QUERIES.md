@@ -1,4 +1,4 @@
-# Task Tracker — Logseq Queries
+# logseq-inline-task-badge — Queries
 
 Paste any of these into a Logseq page to create a live view of your tasks.
 
