@@ -1,0 +1,21 @@
+{
+  "name": "logseq-task-tracker",
+  "version": "0.1.0",
+  "description": "Custom task status tracker with dropdown workflow for Logseq",
+  "logseq": {
+    "id": "logseq-task-tracker",
+    "main": "dist/index.html",
+    "title": "Task Tracker",
+    "icon": "icon.svg"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@logseq/libs": "^0.0.1-alpha.35",
+    "vite": "^4.5.0"
+  }
+}
