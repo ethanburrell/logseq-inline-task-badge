@@ -14,14 +14,6 @@ const STATUSES = [
 
 const MACRO_KEY = ':task-status'
 
-// ─── Runtime state ───────────────────────────────────────────────────────────
-
-/** Tracks which slots currently have their dropdown open */
-const openDropdowns = new Set()
-
-/** Cache of slot metadata so model handlers can re-render without re-parsing */
-const slotMeta = new Map() // slot → { blockUuid, status, completedDate }
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getStatusStyle(label) {
@@ -32,104 +24,48 @@ function today() {
   return new Date().toLocaleDateString('en-CA') // YYYY-MM-DD
 }
 
-// ─── Template builder ─────────────────────────────────────────────────────────
+// ─── Template ─────────────────────────────────────────────────────────────────
+// The template is injected directly into the Logseq page DOM (not an iframe),
+// so CSS classes from provideStyle are available here.
 
-function buildTemplate(slot, blockUuid, statusLabel, completedDate, isOpen) {
+function buildTemplate(slot, blockUuid, statusLabel, completedDate) {
   const { color, bg } = getStatusStyle(statusLabel)
   const dateStr = completedDate ? ` · ${completedDate}` : ''
 
-  const dropdownItems = STATUSES.map(s => `
-    <div
-      data-on-click="handleSelectStatus"
-      data-slot-id="${slot}"
-      data-block-uuid="${blockUuid}"
-      data-status="${s.label}"
-      style="
-        display:flex;align-items:center;gap:8px;
-        padding:7px 12px;cursor:pointer;
-        font-size:12px;color:#111827;
-        background:${statusLabel === s.label ? '#f9fafb' : 'transparent'};
-      "
-    >
-      <span style="
-        width:8px;height:8px;border-radius:50%;
-        background:${s.color};display:inline-block;flex-shrink:0;
-      "></span>
-      <span>${s.label}</span>
-      ${statusLabel === s.label
-        ? '<span style="margin-left:auto;color:#9ca3af;font-size:10px;">✓</span>'
-        : ''}
-    </div>
-  `).join('')
-
-  const dropdownHTML = isOpen ? `
-    <div style="
-      position:absolute;top:calc(100% + 3px);left:0;
-      background:#fff;border:1px solid #e5e7eb;
-      border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.12);
-      min-width:160px;overflow:hidden;z-index:100;
-    ">
-      ${dropdownItems}
-    </div>
-  ` : ''
+  const items = STATUSES.map(s =>
+    `<button class="ts-item" data-on-click="handleSelectStatus" data-slot-id="${slot}" data-block-uuid="${blockUuid}" data-status="${s.label}"><span class="ts-dot" style="background:${s.color}"></span>${s.label}${statusLabel === s.label ? '<span class="ts-check">✓</span>' : ''}</button>`
+  ).join('')
 
   return `
-    <div style="
-      position:relative;display:inline-block;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    ">
-      <span
-        data-on-click="handleToggleDropdown"
-        data-slot-id="${slot}"
-        data-block-uuid="${blockUuid}"
-        style="
-          display:inline-flex;align-items:center;gap:4px;
-          padding:2px 8px;border-radius:4px;
-          font-size:12px;font-weight:600;
-          color:${color};background:${bg};
-          cursor:pointer;user-select:none;
-          border:1px solid ${color}33;
-          white-space:nowrap;
-        "
-      >
-        ${statusLabel}${dateStr}
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" style="margin-left:2px;flex-shrink:0;">
-          <path d="M1 1L5 5L9 1" stroke="${color}" stroke-width="1.5"
-            stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </span>
-      ${dropdownHTML}
+    <div class="ts-wrapper">
+      <button class="ts-badge" style="color:${color};background:${bg};border-color:${color}33;"
+      >${statusLabel}${dateStr} ▾</button>
+      <div class="ts-dropdown">${items}</div>
     </div>
   `
 }
 
-// ─── Render helper ────────────────────────────────────────────────────────────
+// ─── Render ───────────────────────────────────────────────────────────────────
 
-function renderUI(slot, blockUuid, statusLabel, completedDate, isOpen) {
-  // Make the iframe tall enough to contain the open dropdown
-  const dropdownHeight = STATUSES.length * 34 + 8
-  const height = isOpen ? 28 + dropdownHeight : 28
-
-  slotMeta.set(slot, { blockUuid, status: statusLabel, completedDate })
-
+function renderUI(slot, blockUuid, statusLabel, completedDate) {
   logseq.provideUI({
     key: `task-status-${slot}`,
     slot,
     reset: true,
-    style: { height: `${height}px` },
-    template: buildTemplate(slot, blockUuid, statusLabel, completedDate, isOpen),
+    // overflow:visible lets the dropdown escape the slot container's bounds.
+    // verticalAlign:middle aligns the slot inline with surrounding text.
+    style: { overflow: 'visible', verticalAlign: 'middle' },
+    template: buildTemplate(slot, blockUuid, statusLabel, completedDate),
   })
 }
 
-// ─── Block content updater ────────────────────────────────────────────────────
+// ─── Block updater ────────────────────────────────────────────────────────────
 
 async function updateBlockStatus(blockUuid, newStatus) {
   const block = await logseq.Editor.getBlock(blockUuid)
   if (!block) return
 
   const completedDate = newStatus === 'Completed' ? today() : null
-
-  // Replace the renderer macro in place, preserving the rest of the block
   const newMacro = completedDate
     ? `{{renderer :task-status, ${newStatus}, ${completedDate}}}`
     : `{{renderer :task-status, ${newStatus}}}`
@@ -138,7 +74,6 @@ async function updateBlockStatus(blockUuid, newStatus) {
     /\{\{renderer\s+:task-status(?:,[^}]*)?\}\}/,
     newMacro
   )
-
   await logseq.Editor.updateBlock(blockUuid, updated)
 }
 
@@ -147,55 +82,111 @@ async function updateBlockStatus(blockUuid, newStatus) {
 async function main() {
   console.log('[Task Tracker] Plugin loaded')
 
-  // Slash command: type /Task Status in any block to insert the badge
-  logseq.Editor.registerSlashCommand('Task Status', async () => {
-    await logseq.Editor.insertAtEditingCursor(
-      '{{renderer :task-status, Not Started}}'
-    )
-  })
+  // Inject structural CSS into the Logseq page.
+  // Dynamic colors are handled via inline styles in the template.
+  logseq.provideStyle(`
+    /* The slot must be inline-flex (not block flex) so its height = badge height.
+       Without this the injected div computes as display:flex (block), stretching
+       to the full block height (~97px) and throwing off vertical alignment. */
+    .block-content .lsp-hook-ui-slot {
+      vertical-align: middle !important;
+      align-items: center !important;
+    }
+    .block-content .lsp-hook-ui-slot [data-injected-ui] {
+      display: inline-flex !important;
+      align-items: center !important;
+    }
 
-  // Model: functions callable from provideUI templates via data-on-click
+    .ts-wrapper {
+      position: relative;
+      /* Logseq's JS forces the parent injected div to display:flex and ~97px tall.
+         We accept this and center the badge within it instead of fighting the height. */
+      display: flex !important;
+      align-items: center !important;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .ts-badge {
+      padding: 2px 8px !important;
+      border-radius: 4px !important;
+      font-size: 12px !important;
+      font-weight: 600 !important;
+      line-height: 1.4 !important;
+      cursor: pointer !important;
+      border: 1px solid !important;
+      white-space: nowrap !important;
+      margin: 0 !important;
+    }
+    .ts-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 3px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      min-width: 160px;
+      z-index: 9999;
+      white-space: normal;
+    }
+    .ts-wrapper:focus-within .ts-dropdown {
+      display: flex;
+      flex-direction: column;
+    }
+    /* Use !important to override Logseq's global button styles */
+    .ts-item {
+      display: flex !important;
+      align-items: center !important;
+      gap: 8px !important;
+      width: 100% !important;
+      padding: 6px 12px !important;
+      margin: 0 !important;
+      cursor: pointer !important;
+      border: none !important;
+      border-radius: 0 !important;
+      font-size: 12px !important;
+      font-weight: 400 !important;
+      line-height: 1.4 !important;
+      color: #111827 !important;
+      text-align: left !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      min-height: 0 !important;
+      height: auto !important;
+      box-sizing: border-box !important;
+    }
+    .ts-item:hover { background: #f9fafb !important; }
+    .ts-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .ts-check {
+      margin-left: auto;
+      color: #9ca3af;
+      font-size: 10px;
+    }
+  `)
+
+  logseq.Editor.registerSlashCommand('Task Status', [
+    ['editor/input', '{{renderer :task-status, Not Started}}'],
+  ])
+
   logseq.provideModel({
-    handleToggleDropdown(e) {
-      const { slotId, blockUuid } = e.dataset
-      const meta = slotMeta.get(slotId)
-      if (!meta) return
-
-      const isNowOpen = !openDropdowns.has(slotId)
-      isNowOpen ? openDropdowns.add(slotId) : openDropdowns.delete(slotId)
-
-      renderUI(slotId, blockUuid, meta.status, meta.completedDate, isNowOpen)
-    },
-
     async handleSelectStatus(e) {
-      const { slotId, blockUuid, status } = e.dataset
-      const meta = slotMeta.get(slotId)
-      if (!meta) return
-
-      openDropdowns.delete(slotId)
-
-      // Optimistically update local cache so the re-render after updateBlock
-      // doesn't briefly flash the old status
-      const completedDate = status === 'Completed' ? today() : null
-      slotMeta.set(slotId, { blockUuid, status, completedDate })
-
+      const { blockUuid, status } = e.dataset
       await updateBlockStatus(blockUuid, status)
-      // onMacroRendererSlotted fires automatically after the block update
     },
   })
 
-  // Macro renderer: runs whenever a {{renderer :task-status, ...}} block is drawn
   logseq.App.onMacroRendererSlotted(({ slot, payload }) => {
     const [type, statusArg, dateArg] = payload.arguments.map(a => a?.trim())
-
     if (type !== MACRO_KEY) return
 
-    const statusLabel  = statusArg || 'Not Started'
-    const completedDate = dateArg   || null
-    const blockUuid    = payload.uuid
-    const isOpen       = openDropdowns.has(slot)
-
-    renderUI(slot, blockUuid, statusLabel, completedDate, isOpen)
+    renderUI(slot, payload.uuid, statusArg || 'Not Started', dateArg || null)
   })
 }
 
