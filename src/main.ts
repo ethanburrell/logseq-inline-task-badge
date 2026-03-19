@@ -21,6 +21,9 @@ interface SelectStatusEvent {
 // Macro format (all trailing empty args are omitted):
 //   {{renderer :task-status, STATUS, COMPLETED_DATE, IN_PROGRESS_START_MS, ACCUMULATED_MS}}
 //
+// '_' is used as a positional placeholder instead of empty string — Logseq does not
+// handle consecutive commas (e.g. ", ,") and fails to trigger the renderer if present.
+//
 // - completedDate:    set when status → Completed
 // - inProgressStart:  unix ms when the current "In Progress" period started
 // - accumulatedMs:    total ms from all previous completed "In Progress" periods
@@ -31,9 +34,9 @@ interface MacroArgs {
   accumulatedMs: number
 }
 
-// ─── Status definitions ──────────────────────────────────────────────────────
+// ─── Default status definitions ───────────────────────────────────────────────
 
-const STATUSES: StatusDefinition[] = [
+const DEFAULT_STATUSES: StatusDefinition[] = [
   { label: 'Not Started', color: '#374151', bg: '#f3f4f6' },
   { label: 'In Progress', color: '#1d4ed8', bg: '#dbeafe' },
   { label: 'In Review',   color: '#b45309', bg: '#fef3c7' },
@@ -43,12 +46,44 @@ const STATUSES: StatusDefinition[] = [
   { label: 'Completed',   color: '#065f46', bg: '#a7f3d0' },
 ]
 
+// The "In Progress" label is special: it triggers time tracking.
+// This constant must match the label used in DEFAULT_STATUSES and any user config.
+const IN_PROGRESS_LABEL = 'In Progress'
+
 const MACRO_KEY = ':task-status'
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+// Returns the active status list — from plugin settings if valid, else defaults.
+function getStatuses(): StatusDefinition[] {
+  try {
+    const raw = logseq.settings?.statuses as string | undefined
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw)
+      if (
+        Array.isArray(parsed) &&
+        parsed.length > 0 &&
+        parsed.every(
+          (s): s is StatusDefinition =>
+            typeof s === 'object' && s !== null &&
+            typeof (s as StatusDefinition).label === 'string' &&
+            typeof (s as StatusDefinition).color === 'string' &&
+            typeof (s as StatusDefinition).bg    === 'string'
+        )
+      ) {
+        return parsed
+      }
+    }
+  } catch {
+    // fall through to defaults
+  }
+  return DEFAULT_STATUSES
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getStatusStyle(label: string): StatusDefinition {
-  return STATUSES.find(s => s.label === label) ?? STATUSES[0]
+  return getStatuses().find(s => s.label === label) ?? getStatuses()[0]
 }
 
 function today(): string {
@@ -77,15 +112,13 @@ function totalElapsedMs(args: MacroArgs): number {
 // ─── Macro serialization ─────────────────────────────────────────────────────
 
 // args[0] must be ':task-status' (as returned by payload.arguments or block parse).
-// '_' is used as a placeholder for empty positional slots — Logseq does not handle
-// consecutive commas (e.g. ", ,") and fails to trigger the renderer if they appear.
 function parseMacroArgs(rawArgs: string[]): MacroArgs {
   const [, status = '', dateStr = '', startStr = '', accStr = ''] =
     rawArgs.map(a => a?.trim() ?? '')
   const defined = (v: string) => v !== '' && v !== '_'
   return {
     status:           status || 'Not Started',
-    completedDate:    defined(dateStr)  ? dateStr              : null,
+    completedDate:    defined(dateStr)  ? dateStr                : null,
     inProgressStart:  defined(startStr) ? parseInt(startStr, 10) : null,
     accumulatedMs:    defined(accStr)   ? parseInt(accStr,   10) : 0,
   }
@@ -123,7 +156,7 @@ function buildTemplate(slot: string, blockUuid: string, args: MacroArgs): string
   const timeStr = elapsedMs >= 60_000 ? ` · ${formatDuration(elapsedMs)}` : ''
   const dateStr = args.completedDate ? ` · ${args.completedDate}` : ''
 
-  const items = STATUSES.map(s =>
+  const items = getStatuses().map(s =>
     `<button class="ts-item" data-on-click="handleSelectStatus" data-slot-id="${slot}" data-block-uuid="${blockUuid}" data-status="${s.label}">` +
     `<span class="ts-dot" style="background:${s.color}"></span>` +
     `${s.label}` +
@@ -171,7 +204,7 @@ async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<
   const updated: MacroArgs = { ...current, status: newStatus }
 
   // Leaving "In Progress" → close the open session and accumulate.
-  if (current.status === 'In Progress' && newStatus !== 'In Progress') {
+  if (current.status === IN_PROGRESS_LABEL && newStatus !== IN_PROGRESS_LABEL) {
     if (current.inProgressStart !== null) {
       updated.accumulatedMs = current.accumulatedMs + (now - current.inProgressStart)
     }
@@ -179,7 +212,7 @@ async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<
   }
 
   // Entering "In Progress" → open a new session.
-  if (newStatus === 'In Progress' && current.status !== 'In Progress') {
+  if (newStatus === IN_PROGRESS_LABEL && current.status !== IN_PROGRESS_LABEL) {
     updated.inProgressStart = now
   }
 
@@ -197,6 +230,19 @@ async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<
 
 async function main(): Promise<void> {
   console.log('[Task Tracker] Plugin loaded')
+
+  logseq.useSettingsSchema([
+    {
+      key: 'statuses',
+      type: 'string',
+      default: JSON.stringify(DEFAULT_STATUSES),
+      title: 'Task Statuses (JSON)',
+      description:
+        'JSON array of status definitions. Each entry requires: label (string), color (hex text color), bg (hex background color). ' +
+        'The label "In Progress" has special behavior: it starts a timer that tracks how long the task has been in that state. ' +
+        'Example entry: {"label":"Blocked","color":"#991b1b","bg":"#fee2e2"}',
+    },
+  ])
 
   // Inject structural CSS into the Logseq page.
   // Dynamic colors are handled via inline styles in the template.
@@ -287,7 +333,7 @@ async function main(): Promise<void> {
     }
   `)
 
-  logseq.Editor.registerSlashCommand('Task Status', [
+  logseq.Editor.registerSlashCommand('task', [
     ['editor/input', '{{renderer :task-status, Not Started}}'],
   ])
 
