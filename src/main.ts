@@ -16,6 +16,21 @@ interface SelectStatusEvent {
   }
 }
 
+// Represents the parsed state stored in the macro arguments.
+//
+// Macro format (all trailing empty args are omitted):
+//   {{renderer :task-status, STATUS, COMPLETED_DATE, IN_PROGRESS_START_MS, ACCUMULATED_MS}}
+//
+// - completedDate:    set when status → Completed
+// - inProgressStart:  unix ms when the current "In Progress" period started
+// - accumulatedMs:    total ms from all previous completed "In Progress" periods
+interface MacroArgs {
+  status: string
+  completedDate: string | null
+  inProgressStart: number | null
+  accumulatedMs: number
+}
+
 // ─── Status definitions ──────────────────────────────────────────────────────
 
 const STATUSES: StatusDefinition[] = [
@@ -40,31 +55,86 @@ function today(): string {
   return new Date().toLocaleDateString('en-CA') // YYYY-MM-DD
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 60_000) return '<1m'
+  const totalMinutes = Math.floor(ms / 60_000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${minutes}m`
+  if (minutes === 0) return `${hours}h`
+  return `${hours}h ${minutes}m`
+}
+
+// Total ms spent in "In Progress", including the current open session if active.
+function totalElapsedMs(args: MacroArgs): number {
+  let total = args.accumulatedMs
+  if (args.inProgressStart !== null) {
+    total += Date.now() - args.inProgressStart
+  }
+  return total
+}
+
+// ─── Macro serialization ─────────────────────────────────────────────────────
+
+// args[0] must be ':task-status' (as returned by payload.arguments or block parse).
+// '_' is used as a placeholder for empty positional slots — Logseq does not handle
+// consecutive commas (e.g. ", ,") and fails to trigger the renderer if they appear.
+function parseMacroArgs(rawArgs: string[]): MacroArgs {
+  const [, status = '', dateStr = '', startStr = '', accStr = ''] =
+    rawArgs.map(a => a?.trim() ?? '')
+  const defined = (v: string) => v !== '' && v !== '_'
+  return {
+    status:           status || 'Not Started',
+    completedDate:    defined(dateStr)  ? dateStr              : null,
+    inProgressStart:  defined(startStr) ? parseInt(startStr, 10) : null,
+    accumulatedMs:    defined(accStr)   ? parseInt(accStr,   10) : 0,
+  }
+}
+
+function buildMacro(args: MacroArgs): string {
+  const hasStart = args.inProgressStart != null
+  const hasAcc   = args.accumulatedMs > 0
+
+  const parts = [MACRO_KEY, args.status]
+
+  // Only add trailing slots when needed; use '_' to fill gaps instead of leaving
+  // empty slots that produce ",,", which breaks Logseq's macro renderer.
+  if (args.completedDate || hasStart || hasAcc) {
+    parts.push(args.completedDate ?? '_')
+  }
+  if (hasStart || hasAcc) {
+    parts.push(hasStart ? String(args.inProgressStart) : '_')
+  }
+  if (hasAcc) {
+    parts.push(String(args.accumulatedMs))
+  }
+
+  return `{{renderer ${parts.join(', ')}}}`
+}
+
 // ─── Template ────────────────────────────────────────────────────────────────
 // The template is injected directly into the Logseq page DOM (not an iframe),
 // so CSS classes from provideStyle are available here.
 
-function buildTemplate(
-  slot: string,
-  blockUuid: string,
-  statusLabel: string,
-  completedDate: string | null
-): string {
-  const { color, bg } = getStatusStyle(statusLabel)
-  const dateStr = completedDate ? ` · ${completedDate}` : ''
+function buildTemplate(slot: string, blockUuid: string, args: MacroArgs): string {
+  const { color, bg } = getStatusStyle(args.status)
+
+  const elapsedMs = totalElapsedMs(args)
+  const timeStr = elapsedMs >= 60_000 ? ` · ${formatDuration(elapsedMs)}` : ''
+  const dateStr = args.completedDate ? ` · ${args.completedDate}` : ''
 
   const items = STATUSES.map(s =>
     `<button class="ts-item" data-on-click="handleSelectStatus" data-slot-id="${slot}" data-block-uuid="${blockUuid}" data-status="${s.label}">` +
     `<span class="ts-dot" style="background:${s.color}"></span>` +
     `${s.label}` +
-    `${statusLabel === s.label ? '<span class="ts-check">✓</span>' : ''}` +
+    `${args.status === s.label ? '<span class="ts-check">✓</span>' : ''}` +
     `</button>`
   ).join('')
 
   return `
     <div class="ts-wrapper">
       <button class="ts-badge" style="color:${color};background:${bg};border-color:${color}33;"
-      >${statusLabel}${dateStr} ▾</button>
+      >${args.status}${timeStr}${dateStr} ▾</button>
       <div class="ts-dropdown">${items}</div>
     </div>
   `
@@ -72,12 +142,7 @@ function buildTemplate(
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 
-function renderUI(
-  slot: string,
-  blockUuid: string,
-  statusLabel: string,
-  completedDate: string | null
-): void {
+function renderUI(slot: string, blockUuid: string, args: MacroArgs): void {
   logseq.provideUI({
     key: `task-status-${slot}`,
     slot,
@@ -85,7 +150,7 @@ function renderUI(
     // overflow:visible lets the dropdown escape the slot container's bounds.
     // verticalAlign:middle aligns the slot inline with surrounding text.
     style: { overflow: 'visible', verticalAlign: 'middle' },
-    template: buildTemplate(slot, blockUuid, statusLabel, completedDate),
+    template: buildTemplate(slot, blockUuid, args),
   })
 }
 
@@ -95,16 +160,37 @@ async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<
   const block = await logseq.Editor.getBlock(blockUuid)
   if (!block) return
 
-  const completedDate = newStatus === 'Completed' ? today() : null
-  const newMacro = completedDate
-    ? `{{renderer :task-status, ${newStatus}, ${completedDate}}}`
-    : `{{renderer :task-status, ${newStatus}}}`
+  // Re-parse current macro state from block content so we have accurate timing data.
+  const macroMatch = block.content.match(/\{\{renderer\s+(.*?)\}\}/)
+  const rawArgs = macroMatch
+    ? macroMatch[1].split(',').map(a => a.trim())
+    : [MACRO_KEY, 'Not Started']
+  const current = parseMacroArgs(rawArgs)
 
-  const updated = block.content.replace(
+  const now = Date.now()
+  const updated: MacroArgs = { ...current, status: newStatus }
+
+  // Leaving "In Progress" → close the open session and accumulate.
+  if (current.status === 'In Progress' && newStatus !== 'In Progress') {
+    if (current.inProgressStart !== null) {
+      updated.accumulatedMs = current.accumulatedMs + (now - current.inProgressStart)
+    }
+    updated.inProgressStart = null
+  }
+
+  // Entering "In Progress" → open a new session.
+  if (newStatus === 'In Progress' && current.status !== 'In Progress') {
+    updated.inProgressStart = now
+  }
+
+  updated.completedDate = newStatus === 'Completed' ? today() : null
+
+  const newMacro = buildMacro(updated)
+  const newContent = block.content.replace(
     /\{\{renderer\s+:task-status(?:,[^}]*)?\}\}/,
     newMacro
   )
-  await logseq.Editor.updateBlock(blockUuid, updated)
+  await logseq.Editor.updateBlock(blockUuid, newContent)
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -213,10 +299,10 @@ async function main(): Promise<void> {
   })
 
   logseq.App.onMacroRendererSlotted(({ slot, payload }) => {
-    const [type, statusArg, dateArg] = payload.arguments.map((a: string) => a?.trim())
-    if (type !== MACRO_KEY) return
+    const rawArgs: string[] = payload.arguments.map((a: string) => a?.trim())
+    if (rawArgs[0] !== MACRO_KEY) return
 
-    renderUI(slot, payload.uuid, statusArg || 'Not Started', dateArg || null)
+    renderUI(slot, payload.uuid, parseMacroArgs(rawArgs))
   })
 }
 
