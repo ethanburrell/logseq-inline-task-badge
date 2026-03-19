@@ -2,7 +2,7 @@
 
 A Logseq plugin that adds inline, clickable status badges to any block. Track tasks through a 7-stage workflow without leaving your notes.
 
-![Badge example](docs/badge-example.png)
+![Screenshot](docs/screenshot.png)
 
 ## Features
 
