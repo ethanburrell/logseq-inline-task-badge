@@ -32,7 +32,7 @@ A Logseq plugin that adds inline, clickable status badges to any block. Track ta
 
 ## Usage
 
-In any block, type `/Task Status`. This inserts:
+In any block, type `/TASK`. This inserts:
 
 ```
 {{renderer :task-status, Not Started}}

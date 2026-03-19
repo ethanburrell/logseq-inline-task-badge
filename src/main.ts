@@ -333,7 +333,7 @@ async function main(): Promise<void> {
     }
   `)
 
-  logseq.Editor.registerSlashCommand('task', [
+  logseq.Editor.registerSlashCommand('TASK', [
     ['editor/input', '{{renderer :task-status, Not Started}}'],
   ])
 
