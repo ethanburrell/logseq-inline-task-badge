@@ -1,8 +1,24 @@
 import '@logseq/libs'
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface StatusDefinition {
+  label: string
+  color: string
+  bg: string
+}
+
+interface SelectStatusEvent {
+  dataset: {
+    blockUuid: string
+    status: string
+    slotId: string
+  }
+}
+
 // ─── Status definitions ──────────────────────────────────────────────────────
 
-const STATUSES = [
+const STATUSES: StatusDefinition[] = [
   { label: 'Not Started', color: '#374151', bg: '#f3f4f6' },
   { label: 'In Progress', color: '#1d4ed8', bg: '#dbeafe' },
   { label: 'In Review',   color: '#b45309', bg: '#fef3c7' },
@@ -16,24 +32,33 @@ const MACRO_KEY = ':task-status'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getStatusStyle(label) {
-  return STATUSES.find(s => s.label === label) || STATUSES[0]
+function getStatusStyle(label: string): StatusDefinition {
+  return STATUSES.find(s => s.label === label) ?? STATUSES[0]
 }
 
-function today() {
+function today(): string {
   return new Date().toLocaleDateString('en-CA') // YYYY-MM-DD
 }
 
-// ─── Template ─────────────────────────────────────────────────────────────────
+// ─── Template ────────────────────────────────────────────────────────────────
 // The template is injected directly into the Logseq page DOM (not an iframe),
 // so CSS classes from provideStyle are available here.
 
-function buildTemplate(slot, blockUuid, statusLabel, completedDate) {
+function buildTemplate(
+  slot: string,
+  blockUuid: string,
+  statusLabel: string,
+  completedDate: string | null
+): string {
   const { color, bg } = getStatusStyle(statusLabel)
   const dateStr = completedDate ? ` · ${completedDate}` : ''
 
   const items = STATUSES.map(s =>
-    `<button class="ts-item" data-on-click="handleSelectStatus" data-slot-id="${slot}" data-block-uuid="${blockUuid}" data-status="${s.label}"><span class="ts-dot" style="background:${s.color}"></span>${s.label}${statusLabel === s.label ? '<span class="ts-check">✓</span>' : ''}</button>`
+    `<button class="ts-item" data-on-click="handleSelectStatus" data-slot-id="${slot}" data-block-uuid="${blockUuid}" data-status="${s.label}">` +
+    `<span class="ts-dot" style="background:${s.color}"></span>` +
+    `${s.label}` +
+    `${statusLabel === s.label ? '<span class="ts-check">✓</span>' : ''}` +
+    `</button>`
   ).join('')
 
   return `
@@ -47,7 +72,12 @@ function buildTemplate(slot, blockUuid, statusLabel, completedDate) {
 
 // ─── Render ───────────────────────────────────────────────────────────────────
 
-function renderUI(slot, blockUuid, statusLabel, completedDate) {
+function renderUI(
+  slot: string,
+  blockUuid: string,
+  statusLabel: string,
+  completedDate: string | null
+): void {
   logseq.provideUI({
     key: `task-status-${slot}`,
     slot,
@@ -61,7 +91,7 @@ function renderUI(slot, blockUuid, statusLabel, completedDate) {
 
 // ─── Block updater ────────────────────────────────────────────────────────────
 
-async function updateBlockStatus(blockUuid, newStatus) {
+async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<void> {
   const block = await logseq.Editor.getBlock(blockUuid)
   if (!block) return
 
@@ -79,7 +109,7 @@ async function updateBlockStatus(blockUuid, newStatus) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-async function main() {
+async function main(): Promise<void> {
   console.log('[Task Tracker] Plugin loaded')
 
   // Inject structural CSS into the Logseq page.
@@ -176,14 +206,14 @@ async function main() {
   ])
 
   logseq.provideModel({
-    async handleSelectStatus(e) {
+    async handleSelectStatus(e: SelectStatusEvent) {
       const { blockUuid, status } = e.dataset
       await updateBlockStatus(blockUuid, status)
     },
   })
 
   logseq.App.onMacroRendererSlotted(({ slot, payload }) => {
-    const [type, statusArg, dateArg] = payload.arguments.map(a => a?.trim())
+    const [type, statusArg, dateArg] = payload.arguments.map((a: string) => a?.trim())
     if (type !== MACRO_KEY) return
 
     renderUI(slot, payload.uuid, statusArg || 'Not Started', dateArg || null)
