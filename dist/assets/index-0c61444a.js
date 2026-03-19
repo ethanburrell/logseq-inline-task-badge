@@ -185,7 +185,7 @@ async function updateBlockStatus(blockUuid, newStatus) {
   await logseq.Editor.updateBlock(blockUuid, newContent);
 }
 async function main() {
-  console.log("[Task Tracker] Plugin loaded");
+  console.log("[Inline Task Badge] Plugin loaded");
   logseq.useSettingsSchema([
     {
       key: "statuses",
@@ -281,7 +281,7 @@ async function main() {
       font-size: 10px;
     }
   `);
-  logseq.Editor.registerSlashCommand("task", [
+  logseq.Editor.registerSlashCommand("TASK", [
     ["editor/input", "{{renderer :task-status, Not Started}}"]
   ]);
   logseq.provideModel({
