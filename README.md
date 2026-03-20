@@ -8,8 +8,11 @@ A Logseq plugin that adds inline, clickable status badges to any block. Track ta
 
 - Inline colored badge that renders inside block content
 - Click to open a dropdown and change status
+- **Double-click** any badge to immediately set it to **In Progress**
+- Tracks time spent In Progress — shown live on the badge
 - Auto-records completion date when set to **Completed**
-- Works with any block — just type a slash command
+- Works with any block — just type `/TASK`
+- Statuses and colors are fully configurable via plugin settings
 
 ## Statuses
 
@@ -17,11 +20,19 @@ A Logseq plugin that adds inline, clickable status badges to any block. Track ta
 |---|---|
 | Not Started | Gray |
 | In Progress | Blue |
+| Blocked | Red |
 | In Review | Amber |
 | Merged | Purple |
 | Deployed | Green |
 | Comms Sent | Cyan |
 | Completed | Dark green |
+
+## Settings
+
+| Setting | Default | Description |
+|---|---|---|
+| Task Statuses (JSON) | *(default list)* | Customise labels and colors. Each entry needs `label`, `color`, `bg`. |
+| Struggle with Multitasking? *(Allow 1 In Progress Task)* | Off | Blocks setting a task to In Progress if one is already active. Shows a warning with instructions to resolve. |
 
 ## Installation
 

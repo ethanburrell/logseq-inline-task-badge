@@ -58,6 +58,7 @@ lsplugin_user.exports;
 const DEFAULT_STATUSES = [
   { label: "Not Started", color: "#374151", bg: "#f3f4f6" },
   { label: "In Progress", color: "#1d4ed8", bg: "#dbeafe" },
+  { label: "Blocked", color: "#b91c1c", bg: "#fee2e2" },
   { label: "In Review", color: "#b45309", bg: "#fef3c7" },
   { label: "Merged", color: "#6d28d9", bg: "#ede9fe" },
   { label: "Deployed", color: "#047857", bg: "#d1fae5" },
@@ -106,6 +107,20 @@ function totalElapsedMs(args) {
   }
   return total;
 }
+async function findInProgressBlocks(excludeUuid) {
+  try {
+    const results = await logseq.DB.datascriptQuery(`
+      [:find ?uuid
+       :where
+       [?b :block/uuid ?uuid]
+       [?b :block/content ?c]
+       [(clojure.string/includes? ?c "task-status, In Progress")]]
+    `);
+    return (results ?? []).filter((r) => r[0] !== excludeUuid).length;
+  } catch {
+    return 0;
+  }
+}
 function parseMacroArgs(rawArgs) {
   const [, status = "", dateStr = "", startStr = "", accStr = ""] = rawArgs.map((a) => a?.trim() ?? "");
   const defined = (v) => v !== "" && v !== "_";
@@ -141,7 +156,10 @@ function buildTemplate(slot, blockUuid, args) {
   ).join("");
   return `
     <div class="ts-wrapper">
-      <button class="ts-badge" style="color:${color};background:${bg};border-color:${color}33;"
+      <button class="ts-badge"
+        data-on-dblclick="handleDblClick"
+        data-block-uuid="${blockUuid}"
+        style="color:${color};background:${bg};border-color:${color}33;"
       >${args.status}${timeStr}${dateStr} ▾</button>
       <div class="ts-dropdown">${items}</div>
     </div>
@@ -174,6 +192,15 @@ async function updateBlockStatus(blockUuid, newStatus) {
     updated.inProgressStart = null;
   }
   if (newStatus === IN_PROGRESS_LABEL && current.status !== IN_PROGRESS_LABEL) {
+    if (logseq.settings?.singleInProgress) {
+      const count = await findInProgressBlocks(blockUuid);
+      if (count > 0) {
+        logseq.App.showMsg(
+          `[Inline Task Badge] You already have ${count} task${count > 1 ? "s" : ""} In Progress. `
+        );
+        return;
+      }
+    }
     updated.inProgressStart = now;
   }
   updated.completedDate = newStatus === "Completed" ? today() : null;
@@ -192,7 +219,14 @@ async function main() {
       type: "string",
       default: JSON.stringify(DEFAULT_STATUSES),
       title: "Task Statuses (JSON)",
-      description: 'JSON array of status definitions. Each entry requires: label (string), color (hex text color), bg (hex background color). The label "In Progress" has special behavior: it starts a timer that tracks how long the task has been in that state. Example entry: {"label":"Blocked","color":"#991b1b","bg":"#fee2e2"}'
+      description: 'JSON array of status definitions. Each entry requires: label (string), color (hex text color), bg (hex background color). The label "In Progress" has special behavior: it starts a timer that tracks how long the task has been in that state. Example entry: {"label":"Waiting","color":"#92400e","bg":"#fef3c7"}'
+    },
+    {
+      key: "singleInProgress",
+      type: "boolean",
+      default: false,
+      title: "Allow 1 In Progress Task",
+      description: 'Block setting a task to "In Progress" if another task is already in that state. To disable this guard, turn off this setting or move the active task out of "In Progress" first.'
     }
   ]);
   logseq.provideStyle(`
@@ -288,6 +322,10 @@ async function main() {
     async handleSelectStatus(e) {
       const { blockUuid, status } = e.dataset;
       await updateBlockStatus(blockUuid, status);
+    },
+    async handleDblClick(e) {
+      const { blockUuid } = e.dataset;
+      await updateBlockStatus(blockUuid, IN_PROGRESS_LABEL);
     }
   });
   logseq.App.onMacroRendererSlotted(({ slot, payload }) => {

@@ -18,11 +18,12 @@ Paste any of these into a Logseq page to create a live view of your tasks.
          (cond
            (clojure.string/includes? c "task-status, Not Started")  0
            (clojure.string/includes? c "task-status, In Progress")  1
-           (clojure.string/includes? c "task-status, In Review")    2
-           (clojure.string/includes? c "task-status, Merged")       3
-           (clojure.string/includes? c "task-status, Deployed")     4
-           (clojure.string/includes? c "task-status, Comms Sent")   5
-           (clojure.string/includes? c "task-status, Completed")    6
+           (clojure.string/includes? c "task-status, Blocked")      2
+           (clojure.string/includes? c "task-status, In Review")    3
+           (clojure.string/includes? c "task-status, Merged")       4
+           (clojure.string/includes? c "task-status, Deployed")     5
+           (clojure.string/includes? c "task-status, Comms Sent")   6
+           (clojure.string/includes? c "task-status, Completed")    7
            :else                                                     99)))
      blocks))}
 #+END_QUERY
@@ -49,6 +50,17 @@ Paste any of these into a Logseq page to create a live view of your tasks.
          :where
          [?b :block/content ?c]
          [(clojure.string/includes? ?c "task-status, In Progress")]]}
+#+END_QUERY
+```
+
+### Blocked
+```clojure
+#+BEGIN_QUERY
+{:title "Blocked"
+ :query [:find (pull ?b [*])
+         :where
+         [?b :block/content ?c]
+         [(clojure.string/includes? ?c "task-status, Blocked")]]}
 #+END_QUERY
 ```
 

@@ -16,6 +16,12 @@ interface SelectStatusEvent {
   }
 }
 
+interface BadgeEvent {
+  dataset: {
+    blockUuid: string
+  }
+}
+
 // Represents the parsed state stored in the macro arguments.
 //
 // Macro format (all trailing empty args are omitted):
@@ -39,6 +45,7 @@ interface MacroArgs {
 const DEFAULT_STATUSES: StatusDefinition[] = [
   { label: 'Not Started', color: '#374151', bg: '#f3f4f6' },
   { label: 'In Progress', color: '#1d4ed8', bg: '#dbeafe' },
+  { label: 'Blocked',     color: '#b91c1c', bg: '#fee2e2' },
   { label: 'In Review',   color: '#b45309', bg: '#fef3c7' },
   { label: 'Merged',      color: '#6d28d9', bg: '#ede9fe' },
   { label: 'Deployed',    color: '#047857', bg: '#d1fae5' },
@@ -109,6 +116,24 @@ function totalElapsedMs(args: MacroArgs): number {
   return total
 }
 
+// Returns the number of blocks currently set to "In Progress", excluding the
+// given block uuid. Used to enforce the singleInProgress setting.
+async function findInProgressBlocks(excludeUuid: string): Promise<number> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const results: string[][] = await (logseq as any).DB.datascriptQuery(`
+      [:find ?uuid
+       :where
+       [?b :block/uuid ?uuid]
+       [?b :block/content ?c]
+       [(clojure.string/includes? ?c "task-status, In Progress")]]
+    `)
+    return (results ?? []).filter(r => r[0] !== excludeUuid).length
+  } catch {
+    return 0
+  }
+}
+
 // ─── Macro serialization ─────────────────────────────────────────────────────
 
 // args[0] must be ':task-status' (as returned by payload.arguments or block parse).
@@ -166,7 +191,10 @@ function buildTemplate(slot: string, blockUuid: string, args: MacroArgs): string
 
   return `
     <div class="ts-wrapper">
-      <button class="ts-badge" style="color:${color};background:${bg};border-color:${color}33;"
+      <button class="ts-badge"
+        data-on-dblclick="handleDblClick"
+        data-block-uuid="${blockUuid}"
+        style="color:${color};background:${bg};border-color:${color}33;"
       >${args.status}${timeStr}${dateStr} ▾</button>
       <div class="ts-dropdown">${items}</div>
     </div>
@@ -213,6 +241,16 @@ async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<
 
   // Entering "In Progress" → open a new session.
   if (newStatus === IN_PROGRESS_LABEL && current.status !== IN_PROGRESS_LABEL) {
+    // Warn if singleInProgress is enabled and another task is already in progress.
+    if (logseq.settings?.singleInProgress) {
+      const count = await findInProgressBlocks(blockUuid)
+      if (count > 0) {
+        logseq.App.showMsg(
+          `[Inline Task Badge] You already have ${count} task${count > 1 ? 's' : ''} In Progress. `
+        )
+        return
+      }
+    }
     updated.inProgressStart = now
   }
 
@@ -240,7 +278,16 @@ async function main(): Promise<void> {
       description:
         'JSON array of status definitions. Each entry requires: label (string), color (hex text color), bg (hex background color). ' +
         'The label "In Progress" has special behavior: it starts a timer that tracks how long the task has been in that state. ' +
-        'Example entry: {"label":"Blocked","color":"#991b1b","bg":"#fee2e2"}',
+        'Example entry: {"label":"Waiting","color":"#92400e","bg":"#fef3c7"}',
+    },
+    {
+      key: 'singleInProgress',
+      type: 'boolean',
+      default: false,
+      title: 'Allow 1 In Progress Task',
+      description:
+        'Block setting a task to "In Progress" if another task is already in that state. ' +
+        'To disable this guard, turn off this setting or move the active task out of "In Progress" first.',
     },
   ])
 
@@ -341,6 +388,10 @@ async function main(): Promise<void> {
     async handleSelectStatus(e: SelectStatusEvent) {
       const { blockUuid, status } = e.dataset
       await updateBlockStatus(blockUuid, status)
+    },
+    async handleDblClick(e: BadgeEvent) {
+      const { blockUuid } = e.dataset
+      await updateBlockStatus(blockUuid, IN_PROGRESS_LABEL)
     },
   })
 
