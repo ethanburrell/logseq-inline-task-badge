@@ -1,4 +1,4 @@
-# Logseq Task Tracker Plugin
+# logseq-inline-task-badge
 
 ## What it does
 
@@ -18,7 +18,7 @@ A Logseq plugin that adds a custom inline task status badge to any block. The ba
 
 ## How to use
 
-Type `/Task Status` in any Logseq block. It inserts a macro which renders as an inline colored badge:
+Type `/TASK` in any Logseq block. It inserts a macro which renders as an inline colored badge:
 
 ```
 {{renderer :task-status, In Progress}}           → blue badge
