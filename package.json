@@ -16,7 +16,7 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@logseq/libs": "^0.0.1-alpha.35",
+    "@logseq/libs": "0.0.17",
     "typescript": "^5.0.0",
     "vite": "^4.5.0"
   }

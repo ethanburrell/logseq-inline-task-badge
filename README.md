@@ -63,7 +63,7 @@ Use Logseq's built-in query language to build live views — all tasks sorted by
 ## Development / Installation
 
 1. Clone or download this repo
-2. Run `npm install && npm run build`
+2. Run `yarn && yarn build`
 3. In Logseq, go to **Settings → Plugins → Load unpacked plugin**
 4. Select the **root folder** of this repo (not the `dist/` folder)
 
@@ -72,9 +72,9 @@ Use Logseq's built-in query language to build live views — all tasks sorted by
 ## Development
 
 ```bash
-npm install        # install dependencies
-npm run build      # type-check + build to dist/
-npm run type-check # TypeScript check only
+yarn               # install dependencies
+yarn build         # type-check + build to dist/
+yarn type-check    # TypeScript check only
 ```
 
 See [PLAN.md](PLAN.md) for architecture notes and Logseq-specific gotchas.

@@ -40,7 +40,7 @@ logseq-badges/
     └── main.ts         # All plugin logic
 ```
 
-Build: `npm run build` → output in `dist/`. Load the **root folder** (not `dist/`) in Logseq.
+Build: `yarn build` → output in `dist/`. Load the **root folder** (not `dist/`) in Logseq.
 
 ## Key technical decisions & gotchas
 

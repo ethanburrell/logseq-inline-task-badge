@@ -245,8 +245,10 @@ async function updateBlockStatus(blockUuid: string, newStatus: string): Promise<
     if (logseq.settings?.singleInProgress) {
       const count = await findInProgressBlocks(blockUuid)
       if (count > 0) {
-        logseq.App.showMsg(
-          `[Inline Task Badge] You already have ${count} task${count > 1 ? 's' : ''} In Progress. `
+        logseq.UI.showMsg(
+          `[Inline Task Badge] You already have ${count} task${count > 1 ? 's' : ''} In Progress. ` +
+          `Finish or move that task out of "In Progress" first, or turn off "Allow 1 In Progress Task" in the plugin settings.`,
+          'warning'
         )
         return
       }
